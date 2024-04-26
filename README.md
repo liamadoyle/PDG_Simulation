@@ -5,6 +5,7 @@ A simulation study.
 ## Table of Contents
 - [About](#about)
 - [Installation](#installation)
+- [Notes](#notes)
 
 ## About
 For the second study of my dissertation, I was interested in the relationship between psychopathy and success in the Prisoner's Dilemma Game (PDG) under various conditions. In the first study of my dissertation, I conducted a meta-analysis examining (among other things) the nascent literature on this topic. Based on these empirical findings and theory, I identified three potentially relevant moderators: opponent strategy, match length, and *k*-index of the PDG. To examine the effect of these moderators, I identified several proxy strategies for psychopathy (i.e., Defector, AntiTitForTat, and TrickyCooperator) and simulated 200 matches for each interacting condition. Stochastic noise was added to the model to increase the generalizability of the simulation to experimental research. Further details can be gleaned from the Python script. 
@@ -33,3 +34,7 @@ Statistical analysis was conducted using version 4.4.0 of *R*. The packages used
 * version 3.0.0 of the *apaTables* package
 
 All analyses were conducted within version 2023.12.1+402 of *Rstudio*.
+
+## Notes
+
+Some pre-processing was done within Excel. This involved the recoding of certain string elements to numeric elements which were later re-factored in R. Please see the "databook.xlsx" file for details.
