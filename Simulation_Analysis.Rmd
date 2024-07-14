@@ -1,0 +1,794 @@
+---
+title: "Simulation Study"
+author: "Liam A. Doyle"
+date: "2024-04-19"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(psych)
+library(tidyverse)
+library(stats)
+library(broom)
+library(effectsize)
+library(multcomp)
+library(gridExtra)
+library(apaTables)
+library(extrafont)
+library(readr)
+library(rempsyc)
+library(flextable)
+```
+
+```{r load, echo=FALSE}
+analysis <- read_csv("stochastic_new2.csv")
+```
+
+
+```{r clean, echo=FALSE}
+# Creating factors out of categorical variables
+
+analysis$Game <- factor(analysis$Game,
+                                  levels = c(0, 1, 2, 3),
+                                  labels = c("gamea", "gameb", "gamec", "gamed"))
+
+analysis$Turns <- factor(analysis$Turns,
+                         levels = c(0, 1, 2, 3),
+                         labels = c("1 turn", "5 turns", "10 turns", "20 turns"))
+
+analysis$P1 <- factor(analysis$P1,
+                      levels = c(0, 1, 2, 3, 4, 5),
+                      labels = c("Defector", "AntiTFT", "TrickyCooperator", "TF2T",
+                                 "TFT", "2TFT"))
+
+analysis$P2 <- factor(analysis$P2,
+                      levels = c(0, 1, 2, 3, 4, 5),
+                      labels = c("Defector", "AntiTFT", "TrickyCooperator", "TF2T",
+                                 "TFT", "2TFT"))
+
+# Adding new column "Winner" and converting to factor
+
+analysis <- analysis %>%
+  mutate(Winner = case_when(
+    Avg_Score_P1 > Avg_Score_P2 ~ 0,
+    Avg_Score_P1 < Avg_Score_P2 ~ 1,
+    Avg_Score_P1 == Avg_Score_P2 ~ 2
+  ))
+
+analysis$Winner <- factor(analysis$Winner,
+                      levels = c(0, 1, 2),
+                      labels = c("P1", "P2", "Tie"))
+
+# Adding new column "Rel_Avg_Score"
+
+analysis <- analysis %>%
+  mutate(Rel_Avg_Score = Avg_Score_P1 - Avg_Score_P2)
+```
+
+## Project Description
+
+This notebook is an overview of the analyses conducted for the second study of my dissertation. In this study, I conducted a simulation of several Prisoner's Dilemma Game (PDG) matches among several competing strategies. Specifically, six strategies were used in this study: Defector, AntiTitForTat, TrickyCooperator, TitForTwoTats, TitForTat, and TwoTitsForTat. The first three were selected to act as a proxy for psychopathic agents, while the latter three were selected as proxies for common human strategies. The outcome variable of interest was average relative payoff, which represented the average relative score (i.e., Player 1 score - Player 2 score) of each match for each strategy. Several game conditions were varied: opponent strategy, *k*-index of the PDG, and match length.
+
+## Examining Overall Effect of Psychopathy (Collapsed Across Conditions)
+
+```{r overall effect, echo=FALSE}
+
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- analysis %>%
+  group_by(P1) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    Player = P1,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "Descriptive Statistics for Collapsed Model"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs for each strategy, along with the 95% confidence intervals.")
+)
+
+# Creating plot of each strategy
+stats_table <- analysis %>%
+  group_by(P1) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # Arranging in descending order
+
+# Calculate 95% CIs for the plotting
+stats_plot_data <- analysis %>%
+  group_by(P1) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  )
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = P1, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI by P1", x = "Player Strategy", y = "Mean Relative AVG Score") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_overall_rel <- aov(Rel_Avg_Score ~ P1, data = analysis)
+
+apa.aov.table(anova_overall_rel,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_overall_rel, linfct = mcp(P1 = "Tukey"))
+
+summary(tukey_result)
+
+```
+
+## Examining Effect of Opponent Strategy on Average Relative Score (P1 = Defector)
+
+```{r defector p2, echo=FALSE}
+# Filtering data for defector
+
+defector <- analysis %>%
+  filter(P1 == "Defector")
+
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- defector %>%
+  group_by(P2) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    Player = P2,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "Defector Scores Against Each Opponent Strategy"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs of Defector when playing each strategy, along with the 95% confidence intervals.")
+)
+
+# Calculate 95% CIs for the plotting
+
+stats_plot_data <- defector %>%
+  group_by(P2) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean)) %>%
+  mutate(P2 = factor(P2, levels = unique(P2)))  # Setting factor levels in the order of appearance
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = P2, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI of Relative Payoffs When P1 = Defector", x = "P2 Strategy", y = "Relative Payoff") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_defector_p2 <- aov(Rel_Avg_Score ~ P2, data = defector)
+
+apa.aov.table(anova_defector_p2,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_defector_p2, linfct = mcp(P2 = "Tukey"))
+
+summary(tukey_result)
+
+```
+
+## Examining Effect of *k*-Index on Average Relative Score (P1 = Defector)
+
+```{r defector k, echo=FALSE}
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- defector %>%
+  group_by(Game) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    "k-Index" = Game,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "Defector Scores In Each Game Type"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs of Defector when playing each different game (i.e., varying k-indexes), along with the 95% confidence intervals. Game A = 0.2; Game B = 0.4; Game C = 0.6; Game D = 0.8")
+)
+
+# Calculate 95% CIs for the plotting
+
+stats_plot_data <- defector %>%
+  group_by(Game) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  )
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = Game, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI of Relative Payoffs When P1 = Defector", x = "Game", y = "Relative Score") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_defector_game <- aov(Rel_Avg_Score ~ Game, data = defector)
+
+apa.aov.table(anova_defector_game,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_defector_p2, linfct = mcp(P2 = "Tukey"))
+
+summary(tukey_result)
+
+```
+
+## Examining Effect of Match Length on Average Relative Score (P1 = Defector)
+
+```{r defector match, echo=FALSE}
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- defector %>%
+  group_by(Turns) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    "Match Length" = Turns,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "Defector Scores In Each Match Length"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs of Defector when playing each different match length, along with the 95% confidence intervals.")
+)
+
+# Calculate 95% CIs for the plotting
+
+stats_plot_data <- defector %>%
+  group_by(P2) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean)) %>%
+  mutate(P2 = factor(P2, levels = unique(P2)))  # Setting factor levels in the order of appearance
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = P2, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI of Relative Payoffs", x = "P2 Strategy", y = "Relative Payoff") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_defector_length <- aov(Rel_Avg_Score ~ Turns, data = defector)
+
+apa.aov.table(anova_defector_length,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_defector_length, linfct = mcp(Turns = "Tukey"))
+
+summary(tukey_result)
+```
+
+## Examining Effect of Opponent Strategy on Average Relative Score (P1 = AntiTFT)
+
+```{r antitft p2, echo=FALSE}
+# Filtering data for defector
+
+antitft <- analysis %>%
+  filter(P1 == "AntiTFT")
+
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- antitft %>%
+  group_by(P2) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    Player = P2,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "AntiTFT Scores Against Each Opponent Strategy"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs of AntiTFT when playing each strategy, along with the 95% confidence intervals.")
+)
+
+# Calculate 95% CIs for the plotting
+
+stats_plot_data <- antitft %>%
+  group_by(P2) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  )
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = P2, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI of Relative Scores (P1 = AntiTFT)", x = "P2 Strategy", y = "Relative Score") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_antitft_p2 <- aov(Rel_Avg_Score ~ P2, data = antitft)
+
+apa.aov.table(anova_antitft_p2,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_antitft_p2, linfct = mcp(P2 = "Tukey"))
+
+summary(tukey_result)
+```
+
+## Examining Effect of *k*-Index on Average Relative Score (P1 = AntiTFT)
+
+```{r antitft k, echo=FALSE}
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- antitft %>%
+  group_by(Game) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    "k-Index" = Game,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "AntiTFT Scores In Each Game Type"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs of AntiTFT when playing each different game (i.e., varying k-indexes), along with the 95% confidence intervals. Game A = 0.2; Game B = 0.4; Game C = 0.6; Game D = 0.8")
+)
+
+# Calculate 95% CIs for the plotting
+
+stats_plot_data <- antitft %>%
+  group_by(Game) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  )
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = Game, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI of Relative Scores (P1 = AntiTFT)", x = "Game", y = "Relative Score") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_antitft_game <- aov(Rel_Avg_Score ~ Game, data = antitft)
+
+apa.aov.table(anova_antitft_game,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_antitft_game, linfct = mcp(Game = "Tukey"))
+
+summary(tukey_result)
+```
+
+## Examining Effect of Match Length on Average Relative Score (P1 = AntiTFT)
+
+```{r antitft match, echo=FALSE}
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- antitft %>%
+  group_by(Turns) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    "Match Length" = Turns,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "AntiTFT Scores In Each Match Length"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs of AntiTFT when playing each different match length, along with the 95% confidence intervals.")
+)
+
+# Calculate 95% CIs for the plotting
+
+stats_plot_data <- antitft %>%
+  group_by(Turns) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  )
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = Turns, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI of Relative Scores (P1 = AntiTFT)", x = "Match Length", y = "Relative Score") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_antitft_length <- aov(Rel_Avg_Score ~ Turns, data = antitft)
+
+apa.aov.table(anova_antitft_length,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_antitft_length, linfct = mcp(Turns = "Tukey"))
+
+summary(tukey_result)
+```
+
+## Examining Effect of Opponent Strategy on Average Relative Score (P1 = TrickyCooperator)
+
+```{r trickycooperator p2, echo=FALSE}
+# Filtering data for TrickyCooperator
+
+tricky <- analysis %>%
+  filter(P1 == "TrickyCooperator")
+
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- tricky %>%
+  group_by(P2) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    Player = P2,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "TrickyCooperator Scores Against Each Opponent Strategy"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs of TrickyCooperator when playing each strategy, along with the 95% confidence intervals.")
+)
+
+# Calculate 95% CIs for the plotting
+
+stats_plot_data <- tricky %>%
+  group_by(P2) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  )
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = P2, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI of Relative Scores (P1 = TrickyCooperator)", x = "P2 Strategy", y = "Relative Score") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_tricky_p2 <- aov(Rel_Avg_Score ~ P2, data = tricky)
+
+apa.aov.table(anova_tricky_p2,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_tricky_p2, linfct = mcp(P2 = "Tukey"))
+
+summary(tukey_result)
+```
+
+## Examining Effect of *k*-Index on Average Relative Score (P1 = TrickyCooperator)
+
+```{r trickycooperator k, echo=FALSE}
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- tricky %>%
+  group_by(Game) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    "k-Index" = Game,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "TrickyCooperator Scores In Each Game Type"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs of TrickyCooperator when playing each different game (i.e., varying k-indexes), along with the 95% confidence intervals. Game A = 0.2; Game B = 0.4; Game C = 0.6; Game D = 0.8")
+)
+
+# Calculate 95% CIs for the plotting
+
+stats_plot_data <- tricky %>%
+  group_by(Game) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  )
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = Game, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI of Relative Scores (P1 = TrickyCooperator)", x = "Game", y = "Relative Score") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_tricky_game <- aov(Rel_Avg_Score ~ Game, data = tricky)
+
+apa.aov.table(anova_tricky_game,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_tricky_game, linfct = mcp(Game = "Tukey"))
+
+summary(tukey_result)
+```
+
+## Examining Effect of Match Length on Average Relative Score (P1 = TrickyCooperator)
+
+```{r trickycooperator match, echo=FALSE}
+# Creating APA-style table for descriptives of each strategy
+
+stats_table <- tricky %>%
+  group_by(Turns) %>%
+  summarise(
+    Mean_Relative_Payoff = mean(Rel_Avg_Score, na.rm = TRUE),
+    SD_Relative_Payoff = sd(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean_Relative_Payoff - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean_Relative_Payoff + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  ) %>%
+  arrange(desc(Mean_Relative_Payoff))  # descending order
+
+# Rename columns for APA-style table
+stats_table <- stats_table %>%
+  rename(
+    "Match Length" = Turns,
+    M = Mean_Relative_Payoff,
+    SD = SD_Relative_Payoff,
+    "CI_lower" = Lower_CI,
+    "CI_upper" = Upper_CI
+  )
+
+# Create APA-style table
+
+nice_table(
+  stats_table,
+  title = c("Table 1", "TrickyCooperator Scores In Each Match Length"),
+  note = c("M = Mean; SD = Standard Deviation. The table shows the mean and standard deviation of the average relative payoffs of TrickyCooperator when playing each different match length, along with the 95% confidence intervals.")
+)
+
+# Calculate 95% CIs for the plotting
+
+stats_plot_data <- tricky %>%
+  group_by(Turns) %>%
+  summarise(
+    Mean = mean(Rel_Avg_Score, na.rm = TRUE),
+    Lower_CI = Mean - qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n()),
+    Upper_CI = Mean + qt(0.975, df = n() - 1) * sd(Rel_Avg_Score) / sqrt(n())
+  )
+
+# Plotting the means and 95% CIs
+apa_plot <- ggplot(stats_plot_data, aes(x = Turns, y = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.1) +
+  labs(title = "Mean and 95% CI of Relative Scores (P1 = TrickyCooperator)", x = "Match Length", y = "Relative Score") +
+  theme_minimal() +
+  theme(text = element_text(family = "Times New Roman", size = 12),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"))
+
+print(apa_plot)
+
+# ANOVA and ETA^2 Calculation
+
+anova_tricky_length <- aov(Rel_Avg_Score ~ Turns, data = tricky)
+
+apa.aov.table(anova_tricky_length,
+              conf.level = .95)
+
+# Tukey Test
+
+tukey_result <- glht(anova_tricky_length, linfct = mcp(Turns = "Tukey"))
+
+summary(tukey_result)
+```
